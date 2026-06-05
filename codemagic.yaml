@@ -1,21 +1,22 @@
 workflows:
-  ios-device-unsigned:
-    name: iOS Unsigned IPA (For Sideloading/Testing)
+  ios-capacitor:
+    name: iOS Capacitor App
     max_build_duration: 120
-    instance_type: mac_mini_m2
+    instance_type: mac_mini_m1
     environment:
-      node: 20
+      node: latest
       xcode: latest
       cocoapods: default
+      groups:
+        - app_store_credentials
     triggering:
       events:
         - push
       branch_patterns:
-        - pattern: master
+        - pattern: 'master'
           include: true
-          source: true
     scripts:
-      - name: Install npm dependencies
+      - name: Install dependencies
         script: |
           npm install
       - name: Build web application
@@ -24,66 +25,42 @@ workflows:
       - name: Sync Capacitor iOS
         script: |
           npx cap sync ios
-      - name: Install CocoaPods
+      - name: Install Pods
         script: |
           cd ios/App && pod install
-      - name: Archive iOS App (Unsigned)
+      - name: Set up code signing
         script: |
-          xcodebuild archive \
-            -workspace "ios/App/App.xcworkspace" \
-            -scheme "App" \
-            -configuration Release \
-            -sdk iphoneos \
-            -archivePath $PWD/ios/App/build/App.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-      - name: Package IPA
+          keychain initialize
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No certificate found, building unsigned..."
+          else
+            echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+            keychain add-certificates --decrypted --certificate /tmp/cert.p12 --certificate-password "$APPLE_CERTIFICATE_PASSWORD"
+            mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+            echo "$APPLE_PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          fi
+      - name: Build iOS App
         script: |
-          mkdir -p Payload
-          cp -r ios/App/build/App.xcarchive/Products/Applications/App.app Payload/
-          zip -r Long-Ngon-A18.ipa Payload
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            # Build unsigned simulator build (.app)
+            xcodebuild build \
+              -workspace "ios/App/App.xcworkspace" \
+              -scheme "App" \
+              -sdk iphonesimulator \
+              -configuration Debug \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO
+            
+            # Create build directory and copy .app artifact
+            mkdir -p build/ios/ipa
+            cp -r $HOME/Library/Developer/Xcode/DerivedData/App-*/Build/Products/Debug-iphonesimulator/App.app build/ios/ipa/
+          else
+            # Build signed .ipa for release/adhoc
+            xcode-project build-ipa \
+              --workspace ios/App/App.xcworkspace \
+              --scheme App
+          fi
     artifacts:
-      - Long-Ngon-A18.ipa
-
-  ios-simulator:
-    name: iOS Simulator App (Unsigned)
-    max_build_duration: 120
-    instance_type: mac_mini_m2
-    environment:
-      node: 20
-      xcode: latest
-      cocoapods: default
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: master
-          include: true
-          source: true
-    scripts:
-      - name: Install npm dependencies
-        script: |
-          npm install
-      - name: Build web application
-        script: |
-          npm run build
-      - name: Sync Capacitor iOS
-        script: |
-          npx cap sync ios
-      - name: Install CocoaPods
-        script: |
-          cd ios/App && pod install
-      - name: Build for Simulator
-        script: |
-          xcodebuild build \
-            -workspace "ios/App/App.xcworkspace" \
-            -scheme "App" \
-            -sdk iphonesimulator \
-            -destination "generic/platform=iOS Simulator" \
-            -configuration Debug \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-    artifacts:
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - build/ios/ipa/**/*.app
+      - build/ios/ipa/**/*.ipa
