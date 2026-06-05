@@ -373,11 +373,15 @@ export default function Order({ menuItems, onNotify }) {
           filteredItems.map(item => {
             const qty = quantities[item.id] || 0;
             return (
-              <div key={item.id} className={`food-card ${qty > 0 ? 'selected' : ''}`}>
+              <div 
+                key={item.id} 
+                className={`food-card ${qty > 0 ? 'selected' : ''}`}
+                onClick={() => handleQtyChange(item.id, 1)}
+              >
                 <div className="food-avatar">{getAvatarChar(item.name)}</div>
                 <div className="food-name">{item.name}</div>
                 <div className="food-price">{formatCurrency(item.price)}</div>
-                <div className="qty-control">
+                <div className="qty-control" onClick={(e) => e.stopPropagation()}>
                   {qty > 0 && (
                     <button className="qty-btn" onClick={() => handleQtyChange(item.id, -1)}>
                       <Minus size={12} />

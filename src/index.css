@@ -840,6 +840,12 @@ input:focus {
   text-align: center;
   position: relative;
   transition: transform var(--transition-fast);
+  cursor: pointer;
+  user-select: none;
+}
+
+.food-card:active {
+  transform: scale(0.97);
 }
 
 .food-avatar {
