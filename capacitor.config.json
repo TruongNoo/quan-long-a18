@@ -1,0 +1,9 @@
+{
+  "appId": "com.quanlonga18.app",
+  "appName": "Lòng Ngon A18",
+  "webDir": "dist",
+  "server": {
+    "url": "https://long-ngon-a18.web.app",
+    "cleartext": true
+  }
+}
