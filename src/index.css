@@ -1360,83 +1360,106 @@ input:focus {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.8);
+  background-color: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(5px);
   z-index: 101;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 20px;
+  padding: 16px;
 }
 
 .bill-scroll-container {
   flex: 1;
   overflow-y: auto;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+  padding-top: 8px;
 }
 
+/* Font có dấu Tiếng Việt đầy đủ cho hoá đơn */
 .thermal-bill {
-  width: 100%;
-  max-width: 350px;
+  width: 216px;     /* ~57mm tại 96dpi */
+  max-width: 216px;
+  min-width: 200px;
   background-color: #fff;
   color: #000;
-  padding: 24px;
+  padding: 10px 8px;
   border-radius: 4px;
-  font-family: 'Courier New', Courier, monospace;
-  box-shadow: var(--shadow-lg);
-  font-size: 12px;
+  /* Dùng font system sans-serif để đảm bảo render dấu tiếng Việt đúng */
+  font-family: 'Noto Sans', 'Segoe UI', Arial, sans-serif;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+  font-size: 11px;
+  line-height: 1.4;
   height: fit-content;
+  word-break: break-word;
 }
 
 .bill-header {
   text-align: center;
-  margin-bottom: 15px;
+  margin-bottom: 8px;
 }
 
 .bill-brand {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 900;
+  margin-bottom: 3px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .bill-divider {
-  border-top: 1px dashed #000;
-  margin: 10px 0;
+  border: none;
+  border-top: 1px dashed #555;
+  margin: 6px 0;
 }
 
 .bill-info-row {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  font-size: 10px;
 }
 
 .bill-table-header {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: 1fr 28px 62px;
   font-weight: 700;
-  margin-bottom: 6px;
+  font-size: 10px;
+  margin-bottom: 4px;
+  gap: 2px;
 }
 
 .bill-table-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  margin-bottom: 4px;
+  grid-template-columns: 1fr 28px 62px;
+  margin-bottom: 3px;
+  font-size: 10px;
+  align-items: start;
+  gap: 2px;
+}
+
+.bill-table-row .bill-item-name {
+  word-break: break-word;
+  line-height: 1.35;
 }
 
 .bill-total-row {
   display: flex;
   justify-content: space-between;
-  font-size: 14px;
-  font-weight: 700;
-  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 6px;
+  padding-top: 4px;
 }
 
 .bill-footer {
   text-align: center;
-  margin-top: 15px;
-  font-size: 11px;
+  margin-top: 8px;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .bill-actions {
@@ -1647,24 +1670,61 @@ input:focus {
   letter-spacing: 0.03em;
 }
 
-/* Unified Media Print Styles to fix black screen */
+/* Print styles for 57mm thermal receipt paper */
 @media print {
+  /* Khai báo khổ giấy 57mm */
+  @page {
+    size: 57mm auto;
+    margin: 2mm 1mm;
+  }
+
   body * {
     visibility: hidden !important;
   }
+
   .printable-area, .printable-area * {
     visibility: visible !important;
   }
+
   .printable-area {
-    position: absolute !important;
+    position: fixed !important;
     left: 0 !important;
     top: 0 !important;
-    width: 100% !important;
+    width: 55mm !important;
+    max-width: 55mm !important;
     background: white !important;
     color: black !important;
     box-shadow: none !important;
     border: none !important;
+    border-radius: 0 !important;
+    padding: 2mm 1.5mm !important;
+    /* Font có dấu tiếng Việt */
+    font-family: 'Noto Sans', 'Segoe UI', Arial, sans-serif !important;
+    font-size: 10pt !important;
+    line-height: 1.4 !important;
   }
+
+  .printable-area .bill-brand {
+    font-size: 11pt !important;
+    font-weight: 900 !important;
+  }
+
+  .printable-area .bill-table-header,
+  .printable-area .bill-table-row {
+    grid-template-columns: 1fr 22px 52px !important;
+    font-size: 9pt !important;
+  }
+
+  .printable-area .bill-total-row {
+    font-size: 11pt !important;
+    font-weight: 800 !important;
+  }
+
+  .printable-area .bill-footer {
+    font-size: 9pt !important;
+  }
+
+  /* Ẩn phần header/footer của trình duyệt */
   body, html {
     background: white !important;
     color: black !important;

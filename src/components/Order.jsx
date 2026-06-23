@@ -269,27 +269,29 @@ export default function Order({ menuItems, onNotify }) {
   return (
     <div style={{ display: 'flex', flex: '1', flexDirection: 'column', gap: '15px', position: 'relative' }}>
 
-      {/* CSS in ấn */}
+      {/* CSS in ấn – khổ giấy 57mm, font có dấu tiếng Việt */}
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700;900&display=swap');
         @media print {
           @page {
-            margin: 0;
-          }
-          body {
-            margin: 0;
-            background: white;
+            size: 57mm auto;
+            margin: 2mm 1mm;
           }
           body * { visibility: hidden; }
           #print-section-target, #print-section-target * { visibility: visible; }
           #print-section-target {
-            position: absolute;
+            position: fixed;
             left: 0;
             top: 0;
-            width: 100%;
-            padding: 8mm 12mm;
+            width: 55mm;
+            padding: 2mm 1.5mm;
             background: white !important;
             color: black !important;
+            font-family: 'Noto Sans', 'Segoe UI', Arial, sans-serif !important;
+            font-size: 10pt !important;
             box-sizing: border-box;
+            box-shadow: none;
+            border-radius: 0;
           }
         }
       `}</style>
@@ -524,48 +526,68 @@ export default function Order({ menuItems, onNotify }) {
         </div>
       )}
 
-      {/* ── Màn hình hoá đơn ─────────────────────────────────────── */}
+      {/* ── Màn hình hoá đơn 57mm ─────────────────────────────────── */}
       {showReceipt && (
         <div className="bill-overlay">
           <div className="bill-scroll-container">
             <div id="print-section-target" className="thermal-bill printable-area">
+
+              {/* Header quán */}
               <div className="bill-header">
                 <div className="bill-brand">QUÁN LÒNG NGON A18</div>
-                <div style={{ fontSize: '10px' }}>Địa chỉ: Số nhà 321 Quan Nhân, Thanh Xuân, Hà Nội</div>
-                <div style={{ fontSize: '10px' }}>SĐT: 0984.873.113</div>
-                <div className="bill-divider" />
-                <div style={{ fontWeight: '700', fontSize: '13px' }}>HÓA ĐƠN THANH TOÁN</div>
-                <div style={{ fontSize: '10px' }}>Bàn: {selectedTable}</div>
+                <div style={{ fontSize: '9px', marginBottom: '2px' }}>Địa chỉ: Số nhà 321 Quan Nhân, Thanh Xuân, Hà Nội</div>
+                <div style={{ fontSize: '9px' }}>SĐT: 0984.873.113</div>
               </div>
-              <div style={{ fontSize: '10px', marginBottom: '8px' }}>
-                <div>Ngày: {new Date().toLocaleDateString('vi-VN')}</div>
-                <div>Giờ: {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</div>
-                <div>Mã HĐ: HD{Date.now().toString().slice(-6)}</div>
-              </div>
+
               <div className="bill-divider" />
+
+              <div style={{ textAlign: 'center', fontWeight: '800', fontSize: '11px', marginBottom: '4px' }}>
+                HÓA ĐƠN THANH TOÁN
+              </div>
+
+              <div style={{ fontSize: '9px', marginBottom: '2px' }}>
+                <span>Bàn: <strong>{selectedTable}</strong></span>
+              </div>
+              <div style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                <span>Ngày: {new Date().toLocaleDateString('vi-VN')}</span>
+                <span>Giờ: {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div style={{ fontSize: '9px', marginBottom: '2px' }}>Mã HĐ: HD{Date.now().toString().slice(-6)}</div>
+
+              <div className="bill-divider" />
+
+              {/* Bảng món */}
               <div className="bill-table-header">
                 <span>Tên món</span>
                 <span style={{ textAlign: 'center' }}>SL</span>
-                <span style={{ textAlign: 'right' }}>T.Tiền</span>
+                <span style={{ textAlign: 'right' }}>Thành tiền</span>
               </div>
               <div className="bill-divider" />
+
               {orderDetails.map((d, i) => (
                 <div key={i} className="bill-table-row">
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.item.name}</span>
+                  <span className="bill-item-name">{d.item.name}</span>
                   <span style={{ textAlign: 'center' }}>{d.qty}</span>
-                  <span style={{ textAlign: 'right' }}>{formatCurrency(d.total)}</span>
+                  <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{formatCurrency(d.total)}</span>
                 </div>
               ))}
+
               <div className="bill-divider" />
+
+              {/* Tổng cộng */}
               <div className="bill-total-row">
                 <span>TỔNG CỘNG:</span>
-                <span>{formatCurrency(totalCost)}</span>
+                <span style={{ color: '#000' }}>{formatCurrency(totalCost)}</span>
               </div>
+
               <div className="bill-divider" />
+
+              {/* Footer */}
               <div className="bill-footer">
                 <div>Cảm ơn quý khách!</div>
                 <div>Hẹn gặp lại quý khách lần sau.</div>
               </div>
+
             </div>
           </div>
           <div className="bill-actions">
@@ -587,6 +609,7 @@ export default function Order({ menuItems, onNotify }) {
           </div>
         </div>
       )}
+
 
       {/* ── Modal chi tiết giỏ hàng BÀN HIỆN TẠI ────────────────── */}
       {showCartDetail && (
