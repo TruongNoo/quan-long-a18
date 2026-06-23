@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, ShoppingCart, Utensils, BarChart2, User, Bell, LogOut, Plus, ChevronRight, Check, KeyRound, Settings, Star, Shield, HelpCircle, FileText, Trash2, AlertTriangle, ChevronLeft, ChevronDown, ChevronUp, Send, X, CheckCircle } from 'lucide-react';
-import { subscribeMenu, subscribeTransactions, logout, isFirebaseConfigured, subscribeAuth, sendPasswordReset } from './firebase';
+import { LayoutDashboard, ShoppingCart, Utensils, BarChart2, User, Bell, LogOut, Plus, ChevronRight, Check, KeyRound, Settings, Star, Shield, HelpCircle, FileText, Trash2, AlertTriangle, ChevronLeft, ChevronDown, ChevronUp, Send, X, CheckCircle, Sparkles, Download, Printer } from 'lucide-react';
+import { subscribeMenu, subscribeTransactions, logout, isFirebaseConfigured, subscribeAuth, sendPasswordReset, getLatestVersionConfig } from './firebase';
+
+// Import các cầu nối Bluetooth máy in
+import BluetoothPrinter from './utils/bluetoothPrinterPlugin';
+import { printBluetoothReceipt } from './utils/bluetoothPrinter';
 
 // Import các component con
 import Login from './components/Login';
@@ -9,9 +13,156 @@ import Order from './components/Order';
 import MenuManager from './components/MenuManager';
 import Reports from './components/Reports';
 
+const CURRENT_VERSION = '1.0.2';
+
+// Hàm so sánh phiên bản Semantic Versioning (X.Y.Z)
+const isNewerVersion = (latest, current) => {
+  if (!latest || !current) return false;
+  const latestParts = latest.split('.').map(Number);
+  const currentParts = current.split('.').map(Number);
+  for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
+    const latestPart = latestParts[i] || 0;
+    const currentPart = currentParts[i] || 0;
+    if (latestPart > currentPart) return true;
+    if (latestPart < currentPart) return false;
+  }
+  return false;
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  // ===== STATE VÀ LOGIC MÁY IN BLUETOOTH =====
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
+  const [printerType, setPrinterType] = useState(() => localStorage.getItem('printer_connection_type') || 'system');
+  const [selectedPrinter, setSelectedPrinter] = useState(() => localStorage.getItem('selected_printer_address') || '');
+  const [pairedDevices, setPairedDevices] = useState([]);
+  const [isBtEnabled, setIsBtEnabled] = useState(false);
+  const [printerState, setPrinterState] = useState('disconnected'); // 'disconnected' | 'connecting' | 'connected'
+  const [printerError, setPrinterError] = useState('');
+
+  // Cập nhật localStorage khi có thay đổi cấu hình
+  useEffect(() => {
+    localStorage.setItem('printer_connection_type', printerType);
+  }, [printerType]);
+
+  useEffect(() => {
+    localStorage.setItem('selected_printer_address', selectedPrinter);
+  }, [selectedPrinter]);
+
+  const checkBluetoothStatus = async () => {
+    try {
+      setPrinterError('');
+      // 1. Kiểm tra quyền kết nối
+      const perm = await BluetoothPrinter.checkBluetoothPermissions();
+      if (!perm.granted) {
+        const req = await BluetoothPrinter.requestBluetoothPermissions();
+        if (!req.granted) {
+          setPrinterError('Ứng dụng cần quyền Bluetooth để kết nối với máy in.');
+          return;
+        }
+      }
+
+      // 2. Kiểm tra trạng thái Bluetooth
+      const enabledRes = await BluetoothPrinter.isBluetoothEnabled();
+      setIsBtEnabled(enabledRes.enabled);
+      
+      if (enabledRes.enabled) {
+        // Lấy danh sách thiết bị ghép đôi
+        const devList = await BluetoothPrinter.listDevices();
+        setPairedDevices(devList.devices || []);
+        
+        // Kiểm tra xem hiện tại socket có đang kết nối không
+        const connStatus = await BluetoothPrinter.isConnected();
+        if (connStatus.connected) {
+          setPrinterState('connected');
+          setSelectedPrinter(connStatus.address);
+        } else {
+          setPrinterState('disconnected');
+        }
+      } else {
+        setPairedDevices([]);
+        setPrinterState('disconnected');
+      }
+    } catch (err) {
+      console.error(err);
+      setPrinterError(err.message || 'Lỗi kiểm tra trạng thái Bluetooth.');
+    }
+  };
+
+  const handleEnableBluetooth = async () => {
+    try {
+      setPrinterError('');
+      const res = await BluetoothPrinter.enableBluetooth();
+      if (res.enabled) {
+        setIsBtEnabled(true);
+        setTimeout(checkBluetoothStatus, 1200);
+      }
+    } catch (err) {
+      setPrinterError(err.message || 'Không thể bật Bluetooth.');
+    }
+  };
+
+  const handleConnectPrinter = async (address) => {
+    try {
+      setPrinterError('');
+      setPrinterState('connecting');
+      setSelectedPrinter(address);
+      
+      const res = await BluetoothPrinter.connect({ address });
+      if (res.success) {
+        setPrinterState('connected');
+        addNotification(`Đã kết nối máy in Bluetooth thành công!`, 'info');
+      } else {
+        setPrinterState('disconnected');
+        setPrinterError('Không thể kết nối với máy in.');
+      }
+    } catch (err) {
+      setPrinterState('disconnected');
+      setPrinterError(err.message || 'Lỗi khi kết nối với máy in.');
+    }
+  };
+
+  const handleDisconnectPrinter = async () => {
+    try {
+      await BluetoothPrinter.disconnect();
+      setPrinterState('disconnected');
+      addNotification(`Đã ngắt kết nối máy in Bluetooth.`, 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handlePrintTest = async () => {
+    try {
+      setPrinterError('');
+      const testItems = [
+        { item: { name: 'Mon in thu (Test)' }, qty: 1, total: 10000 }
+      ];
+      await printBluetoothReceipt(testItems, 'BAN TEST', 10000);
+      addNotification('Đã in thử biên lai!', 'info');
+    } catch (err) {
+      setPrinterError(err.message || 'Lỗi in thử.');
+    }
+  };
+
+  // Tự động kiểm tra trạng thái khi mở modal cài đặt
+  useEffect(() => {
+    if (showPrinterModal && printerType === 'bluetooth') {
+      checkBluetoothStatus();
+    }
+  }, [showPrinterModal, printerType]);
+
+  // State cho thông báo cập nhật
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState({ latestVersion: '', downloadUrl: '', releaseNotes: '' });
+  const [currentAppVersion, setCurrentAppVersion] = useState(() => {
+    const savedInstalledVersion = localStorage.getItem('a18_installed_version') || CURRENT_VERSION;
+    return isNewerVersion(savedInstalledVersion, CURRENT_VERSION)
+      ? savedInstalledVersion
+      : CURRENT_VERSION;
+  });
   const [activeTab, setActiveTab] = useState('overview');
   const [menuItems, setMenuItems] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -69,6 +220,42 @@ export default function App() {
     const date = new Date(timestamp);
     return date.toLocaleDateString('vi-VN') + ' ' + date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Kiểm tra cập nhật phiên bản mới từ Firestore
+  useEffect(() => {
+    const isDismissed = sessionStorage.getItem('a18_update_dismissed') === 'true';
+    if (isDismissed) return;
+
+    const checkUpdate = async () => {
+      try {
+        const config = await getLatestVersionConfig();
+        if (config && config.latest_version) {
+          // Lấy phiên bản đã cài (được lưu khi người dùng bấm "Cập nhật ngay")
+          // Dùng phiên bản cao hơn giữa code hiện tại và phiên bản đã lưu
+          const savedInstalledVersion = localStorage.getItem('a18_installed_version') || CURRENT_VERSION;
+          const effectiveVersion = isNewerVersion(savedInstalledVersion, CURRENT_VERSION)
+            ? savedInstalledVersion
+            : CURRENT_VERSION;
+
+          if (isNewerVersion(config.latest_version, effectiveVersion)) {
+            setUpdateInfo({
+              latestVersion: config.latest_version,
+              currentVersion: effectiveVersion,   // phiên bản thực tế đang chạy
+              downloadUrl: config.download_url || '',
+              releaseNotes: config.release_notes || 'Cập nhật phiên bản mới để nâng cao trải nghiệm.'
+            });
+            setShowUpdateModal(true);
+          }
+        }
+      } catch (err) {
+        console.error("Lỗi kiểm tra cập nhật:", err);
+      }
+    };
+
+    // Đợi 2 giây để tránh làm chậm tiến trình khởi chạy ứng dụng
+    const timer = setTimeout(checkUpdate, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Lắng nghe trạng thái đăng nhập (Firebase Auth hoặc localStorage offline)
   useEffect(() => {
@@ -351,6 +538,24 @@ export default function App() {
                 <ChevronRight size={18} style={{ color: '#555761' }} />
               </div>
 
+              <div className="account-menu-item" onClick={() => setShowPrinterModal(true)} style={{ cursor: 'pointer' }}>
+                <div className="account-menu-left">
+                  <div className="account-icon-wrapper" style={{ backgroundColor: 'rgba(0, 191, 165, 0.15)' }}>
+                    <Printer size={18} style={{ color: '#00bfa5' }} />
+                  </div>
+                  <div className="account-menu-details">
+                    <span className="account-menu-title">Cấu hình máy in</span>
+                    <span className="account-menu-subtitle">Kết nối Bluetooth hoặc Dây / Hệ thống</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '10px', padding: '3px 8px', borderRadius: '20px', backgroundColor: 'rgba(92,107,192,0.12)', color: '#5c6bc0', fontWeight: '600' }}>
+                    {printerType === 'bluetooth' ? 'BLUETOOTH' : 'HỆ THỐNG'}
+                  </span>
+                  <ChevronRight size={18} style={{ color: '#555761' }} />
+                </div>
+              </div>
+
               <div className="account-menu-item" onClick={() => {
                 setPwdEmail(user?.email || 'appquanlonga18@gmail.com');
                 setPwdStatus(null);
@@ -443,7 +648,7 @@ export default function App() {
 
             {/* Thông tin chân trang */}
             <div className="account-footer">
-              <div>Lòng Ngon A18 v1.0.0</div>
+              <div>Lòng Ngon A18 v{currentAppVersion}</div>
               <div>Developed with Nguyễn Xuân Trường</div>
               <div style={{ marginTop: '4px' }}>© Quán Lòng Ngon A18</div>
             </div>
@@ -671,7 +876,7 @@ export default function App() {
 
             {/* Footer */}
             <div style={{ textAlign: 'center', color: '#555761', fontSize: '11px', lineHeight: '1.7' }}>
-              <div>Lòng Ngon A18 v1.0.0</div>
+              <div>Lòng Ngon A18 v{currentAppVersion}</div>
               <div>Developed with Nguyễn Xuân Trường</div>
               <div style={{ marginTop: '4px', color: 'rgba(92,107,192,0.6)' }}>© Quán Lòng Ngon A18</div>
             </div>
@@ -792,6 +997,254 @@ export default function App() {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== MODAL THÔNG BÁO CẬP NHẬT PHIÊN BẢN ===== */}
+      {showUpdateModal && (
+        <div className="modal-overlay" style={{ zIndex: 999 }}>
+          <div className="modal-box" style={{ maxWidth: '340px', width: '90%', animation: 'fadeSlideUp 0.3s ease-out' }}>
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ width: '60px', height: '60px', borderRadius: '18px', backgroundColor: 'rgba(0,191,165,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', animation: 'pulse 2s infinite' }}>
+                <Sparkles size={28} style={{ color: '#00bfa5' }} />
+              </div>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', color: 'white', marginBottom: '4px' }}>Cập Nhật Phiên Bản Mới</h3>
+              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Đã có phiên bản mới tốt hơn!
+              </p>
+            </div>
+
+            {/* Phiên bản */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '10px', marginBottom: '16px', border: '1px solid var(--color-border)' }}>
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>Hiện tại: <strong style={{ color: '#aaa' }}>v{updateInfo.currentVersion || CURRENT_VERSION}</strong></span>
+              <ChevronRight size={14} style={{ color: 'var(--color-text-secondary)' }} />
+              <span style={{ fontSize: '12px', color: '#00bfa5', fontWeight: '700' }}>Mới nhất: v{updateInfo.latestVersion}</span>
+            </div>
+
+            {/* Nhật ký thay đổi (Release Notes) */}
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: 'var(--color-text-secondary)', letterSpacing: '0.05em', marginBottom: '6px' }}>CÓ GÌ MỚI:</div>
+              <div style={{ maxHeight: '120px', overflowY: 'auto', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '10px', padding: '10px 12px', fontSize: '12.5px', color: 'var(--color-text-secondary)', lineHeight: '1.5', border: '1px solid rgba(255,255,255,0.02)', textAlign: 'left' }}>
+                {updateInfo.releaseNotes.split('\n').map((line, idx) => (
+                  <div key={idx} style={{ marginBottom: idx < updateInfo.releaseNotes.split('\n').length - 1 ? '4px' : 0 }}>
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Nút hành động */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  if (updateInfo.downloadUrl) {
+                    // Lưu phiên bản mới nhất vào localStorage để không hỏi lại sau khi cài
+                    localStorage.setItem('a18_installed_version', updateInfo.latestVersion);
+                    setCurrentAppVersion(updateInfo.latestVersion);
+                    sessionStorage.setItem('a18_update_dismissed', 'true');
+                    window.open(updateInfo.downloadUrl, '_system');
+                    setShowUpdateModal(false);
+                  } else {
+                    alert('Chưa có link tải phiên bản mới. Vui lòng thử lại sau.');
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px 16px', fontWeight: '600' }}
+              >
+                <Download size={16} />
+                Tải về & Cập nhật ngay
+              </button>
+              <button
+                className="btn-logout-outline"
+                onClick={() => {
+                  sessionStorage.setItem('a18_update_dismissed', 'true');
+                  setShowUpdateModal(false);
+                }}
+                style={{ border: 'none', backgroundColor: 'transparent', color: 'var(--color-text-secondary)', padding: '10px', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+              >
+                Để sau (Bỏ qua)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MODAL CẤU HÌNH MÁY IN ===== */}
+      {showPrinterModal && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowPrinterModal(false); }} style={{ zIndex: 998 }}>
+          <div className="modal-box" style={{ maxWidth: '440px', width: '92%', animation: 'fadeSlideUp 0.3s ease-out' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '14px', backgroundColor: 'rgba(0,191,165,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Printer size={20} style={{ color: '#00bfa5' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: '700', color: 'white' }}>Cấu hình máy in</div>
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>Kết nối Bluetooth hoặc Dây / Hệ thống</div>
+                </div>
+              </div>
+              <button onClick={() => setShowPrinterModal(false)} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '4px' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div>
+              {/* Chọn kiểu kết nối */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--color-text-secondary)', marginBottom: '8px', letterSpacing: '0.04em' }}>KIỂU KẾT NỐI MÁY IN</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPrinterType('system')}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      borderRadius: '12px',
+                      border: `1px solid ${printerType === 'system' ? '#00bfa5' : 'var(--color-border)'}`,
+                      backgroundColor: printerType === 'system' ? 'rgba(0,191,165,0.15)' : '#14151b',
+                      color: printerType === 'system' ? '#00bfa5' : 'white',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Hệ thống / Dây
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrinterType('bluetooth')}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      borderRadius: '12px',
+                      border: `1px solid ${printerType === 'bluetooth' ? '#5c6bc0' : 'var(--color-border)'}`,
+                      backgroundColor: printerType === 'bluetooth' ? 'rgba(92,107,192,0.15)' : '#14151b',
+                      color: printerType === 'bluetooth' ? '#5c6bc0' : 'white',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Bluetooth
+                  </button>
+                </div>
+              </div>
+
+              {printerType === 'system' && (
+                <div style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '14px', border: '1px solid var(--color-border)', fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: '1.6' }}>
+                  <p style={{ margin: 0 }}>
+                    💡 Ở chế độ <strong>Hệ thống / Dây</strong>, khi in hoá đơn, hệ thống sẽ mở hộp thoại in mặc định. Bạn có thể sử dụng máy in cổng USB qua cáp OTG hoặc qua Wifi/LAN được cài đặt trên máy.
+                  </p>
+                </div>
+              )}
+
+              {printerType === 'bluetooth' && (
+                <div>
+                  {/* Trạng thái tắt Bluetooth */}
+                  {!isBtEnabled ? (
+                    <div style={{ textAlign: 'center', padding: '24px 16px', backgroundColor: 'rgba(255,255,255,0.01)', borderRadius: '12px', border: '1px dashed var(--color-border)' }}>
+                      <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>Bluetooth điện thoại đang tắt.</div>
+                      <button className="btn-primary" type="button" onClick={handleEnableBluetooth} style={{ padding: '8px 18px', fontSize: '13px', backgroundColor: '#5c6bc0', border: 'none', borderRadius: '10px', color: 'white', fontWeight: '600', cursor: 'pointer' }}>
+                        Bật Bluetooth
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Trạng thái kết nối hiện tại */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid var(--color-border)', padding: '12px 14px', borderRadius: '12px', marginBottom: '16px' }}>
+                        <div>
+                          <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontWeight: '600', letterSpacing: '0.04em' }}>TRẠNG THÁI MÁY IN</div>
+                          <div style={{ fontSize: '14px', fontWeight: '700', color: printerState === 'connected' ? '#00bfa5' : printerState === 'connecting' ? '#ffa726' : '#ef5350', marginTop: '2px' }}>
+                            {printerState === 'connected' ? 'Đã kết nối' : printerState === 'connecting' ? 'Đang kết nối...' : 'Chưa kết nối'}
+                          </div>
+                          {selectedPrinter && (
+                            <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px', fontFamily: 'monospace' }}>
+                              {selectedPrinter}
+                            </div>
+                          )}
+                        </div>
+                        {printerState === 'connected' ? (
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button type="button" onClick={handlePrintTest} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', backgroundColor: 'rgba(0,191,165,0.12)', color: '#00bfa5', border: '1px solid rgba(0,191,165,0.25)', cursor: 'pointer' }}>
+                              In thử
+                            </button>
+                            <button type="button" onClick={handleDisconnectPrinter} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', backgroundColor: 'rgba(239,83,80,0.08)', color: '#ef5350', border: '1px solid rgba(239,83,80,0.2)', cursor: 'pointer' }}>
+                              Ngắt
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Thông báo lỗi nếu có */}
+                      {printerError && (
+                        <div style={{ backgroundColor: 'rgba(239,83,80,0.08)', border: '1px solid rgba(239,83,80,0.2)', borderRadius: '12px', padding: '10px 14px', color: '#ef5350', fontSize: '12px', marginBottom: '16px', lineHeight: '1.4' }}>
+                          ⚠️ {printerError}
+                        </div>
+                      )}
+
+                      {/* Danh sách thiết bị ghép đôi */}
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: 'var(--color-text-secondary)', marginBottom: '8px', letterSpacing: '0.04em' }}>THIẾT BỊ ĐÃ GHÉP ĐÔI ({pairedDevices.length})</label>
+                      <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                        {pairedDevices.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '16px', color: 'var(--color-text-secondary)', fontSize: '12px' }}>
+                            Không tìm thấy máy in nào đã ghép đôi. Vui lòng vào Cài đặt của điện thoại để ghép đôi với máy in trước.
+                          </div>
+                        ) : (
+                          pairedDevices.map((device, idx) => (
+                            <div
+                              key={idx}
+                              onClick={() => printerState !== 'connecting' && handleConnectPrinter(device.address)}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                backgroundColor: selectedPrinter === device.address ? 'rgba(92,107,192,0.08)' : '#1a1b23',
+                                border: `1px solid ${selectedPrinter === device.address ? '#5c6bc0' : 'var(--color-border)'}`,
+                                cursor: printerState === 'connecting' ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: '13px', fontWeight: '600', color: 'white' }}>{device.name}</div>
+                                <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '2px', fontFamily: 'monospace' }}>{device.address}</div>
+                              </div>
+                              {selectedPrinter === device.address && printerState === 'connected' && (
+                                <Check size={16} style={{ color: '#00bfa5' }} />
+                              )}
+                              {selectedPrinter === device.address && printerState === 'connecting' && (
+                                <span style={{ fontSize: '10px', color: '#ffa726', fontWeight: '600' }}>Đang kết nối...</span>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '12px', lineHeight: '1.45' }}>
+                        💡 <strong>Lưu ý:</strong> Cần ghép đôi (pair) máy in trong cài đặt Bluetooth của điện thoại trước (PIN thường là <code>0000</code> hoặc <code>1234</code>), sau đó thiết bị sẽ hiển thị ở đây để bạn kết nối.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+              <button
+                type="button"
+                onClick={() => setShowPrinterModal(false)}
+                style={{ padding: '10px 24px', fontSize: '13px', backgroundColor: '#333541', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600' }}
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}

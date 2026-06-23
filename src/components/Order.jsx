@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Minus, ShoppingCart, Printer, X, Check, Trash2, Utensils } from 'lucide-react';
 import { addTransaction } from '../firebase';
+import { printBluetoothReceipt } from '../utils/bluetoothPrinter';
 
 export default function Order({ menuItems, onNotify }) {
   const tables = ['Mang về', 'Bàn 1', 'Bàn 2', 'Bàn 3', 'Bàn 4', 'Bàn 5', 'Bàn 6', 'Bàn 7', 'Bàn 8'];
@@ -177,7 +178,21 @@ export default function Order({ menuItems, onNotify }) {
   };
 
   const handlePrint = async () => {
-    window.print();
+    const printerType = localStorage.getItem('printer_connection_type') || 'system';
+    const printerAddress = localStorage.getItem('selected_printer_address');
+
+    if (printerType === 'bluetooth' && printerAddress) {
+      try {
+        await printBluetoothReceipt(orderDetails, selectedTable, totalCost);
+      } catch (err) {
+        console.error(err);
+        triggerToast(`✗ Lỗi in Bluetooth: ${err.message || err}. Đang mở in hệ thống...`);
+        window.print();
+      }
+    } else {
+      window.print();
+    }
+
     const desc = orderDetails.map(d => `${d.item.name} x${d.qty}`).join(', ');
     const cost = totalCost;
     await saveOrderToDatabase();
@@ -460,9 +475,9 @@ export default function Order({ menuItems, onNotify }) {
           <div className="bill-scroll-container">
             <div id="print-section-target" className="thermal-bill printable-area">
               <div className="bill-header">
-                <div className="bill-brand">QUÁN LÒNG A18</div>
-                <div style={{ fontSize: '10px' }}>Địa chỉ: Khu A18, TP Hà Nội</div>
-                <div style={{ fontSize: '10px' }}>SĐT: 0987.654.321</div>
+                <div className="bill-brand">QUÁN LÒNG NGON A18</div>
+                <div style={{ fontSize: '10px' }}>Địa chỉ: Số nhà 321 Quan Nhân, Thanh Xuân, Hà Nội</div>
+                <div style={{ fontSize: '10px' }}>SĐT: 0984.873.113</div>
                 <div className="bill-divider" />
                 <div style={{ fontWeight: '700', fontSize: '13px' }}>HÓA ĐƠN THANH TOÁN</div>
                 <div style={{ fontSize: '10px' }}>Bàn: {selectedTable}</div>

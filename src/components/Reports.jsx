@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Calendar, TrendingUp, ChevronDown, ChevronUp, Download, AlertCircle } from 'lucide-react';
 
 // Cache font data to avoid fetching on every click
 let cachedRobotoRegular = null;
 let cachedRobotoBold = null;
+const PdfDownloader = registerPlugin('PdfDownloader');
 
 const removeDiacritics = (str) => {
   if (!str) return '';
@@ -33,6 +35,14 @@ const loadLocalFont = async (filename) => {
     reader.readAsDataURL(blob);
   });
 };
+
+const blobToBase64 = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 
 export default function Reports({ transactions }) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -364,7 +374,30 @@ export default function Reports({ transactions }) {
         );
       }
 
-      doc.save(`SaoKe_${getShortTitle()}_QuanLongA18_${useRoboto ? 'CoDau' : 'KhongDau'}.pdf`);
+      const fileName = `SaoKe_${getShortTitle()}_QuanLongA18_${useRoboto ? 'CoDau' : 'KhongDau'}.pdf`;
+
+      // Xuất PDF: app điện thoại lưu thẳng vào Download, web dùng tải/chia sẻ của trình duyệt.
+      const blob = doc.output('blob');
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      if (Capacitor.isNativePlatform()) {
+        const base64Data = await blobToBase64(blob);
+        await PdfDownloader.savePdf({
+          fileName,
+          base64Data,
+        });
+      } else {
+        // Web: tải trực tiếp, không mở bảng Share của trình duyệt/hệ điều hành.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
       setExportStatus('done');
       setTimeout(() => setExportStatus(''), 3000);
     } catch (err) {

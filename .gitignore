@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Build tools (Node, JDK, Android SDK, Git - downloaded locally for build)
+.tools/
+
+# Android build artifacts
+android/build/
+android/.gradle/
+android/app/build/
+
+# APK output (tracked separately)
+# Long-Ngon-A18.apk

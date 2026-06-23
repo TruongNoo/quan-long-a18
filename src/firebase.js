@@ -11,6 +11,7 @@ import {
   getFirestore,
   collection, 
   doc, 
+  getDoc,
   setDoc, 
   addDoc, 
   getDocs, 
@@ -414,4 +415,22 @@ export const deleteAllTodayTransactions = async () => {
     setLocalData("a18_transactions", txs);
     window.dispatchEvent(new Event('a18_transactions_updated'));
   }
+};
+
+// ==========================================
+// 4. KIỂM TRA PHIÊN BẢN ỨNG DỤNG
+// ==========================================
+export const getLatestVersionConfig = async () => {
+  if (isFirebaseConfigured && db) {
+    try {
+      const docRef = doc(db, "app_config", "version");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        return docSnap.data();
+      }
+    } catch (error) {
+      console.error("Lỗi khi lấy thông tin phiên bản từ Firestore:", error);
+    }
+  }
+  return null;
 };

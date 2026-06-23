@@ -286,6 +286,7 @@ input:focus {
   position: relative;
   animation: contentFadeIn 0.22s ease;
   -webkit-overflow-scrolling: touch;
+  min-width: 0;
 }
 
 /* Login Screen Styles */
@@ -749,6 +750,7 @@ input:focus {
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 5px;
+  max-width: 100%;
 }
 
 .table-selector-scroll::-webkit-scrollbar {
@@ -802,6 +804,7 @@ input:focus {
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 5px;
+  max-width: 100%;
 }
 
 .category-tab {
@@ -824,9 +827,12 @@ input:focus {
 /* Food Grid layout */
 .foods-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: clamp(7px, 2vw, 10px);
   padding-bottom: 90px; /* space for checkout bar */
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .food-card {
@@ -842,6 +848,8 @@ input:focus {
   transition: transform var(--transition-fast);
   cursor: pointer;
   user-select: none;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .food-card:active {
@@ -1747,7 +1755,7 @@ input:focus {
   }
 
   .foods-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .dashboard-stats-grid {
@@ -1870,7 +1878,7 @@ input:focus {
   }
 
   .foods-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
