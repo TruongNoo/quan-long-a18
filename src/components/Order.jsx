@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Minus, ShoppingCart, Printer, X, Check, Trash2, Utensils } from 'lucide-react';
-import { addTransaction } from '../firebase';
+import { addTransaction, subscribeTableCarts, saveTableCart } from '../firebase';
 import { printBluetoothReceipt } from '../utils/bluetoothPrinter';
 
 export default function Order({ menuItems, onNotify }) {
@@ -85,6 +85,20 @@ export default function Order({ menuItems, onNotify }) {
     localStorage.setItem('a18_table_quantities', JSON.stringify(tableQuantities));
   }, [tableQuantities]);
 
+  // Lắng nghe thay đổi giỏ hàng từ Firebase để đồng bộ thời gian thực
+  useEffect(() => {
+    const unsubscribe = subscribeTableCarts((carts) => {
+      setTableQuantities(prev => {
+        const merged = {};
+        tables.forEach(t => {
+          merged[t] = carts[t] || {};
+        });
+        return merged;
+      });
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Lấy giỏ hàng của bàn hiện tại
   const quantities = tableQuantities[selectedTable] || {};
 
@@ -95,14 +109,16 @@ export default function Order({ menuItems, onNotify }) {
 
   // ── Tăng / giảm số lượng (chỉ ảnh hưởng đến bàn đang chọn) ─────────
   const handleQtyChange = (itemId, delta) => {
-    setTableQuantities(prev => {
-      const cur = prev[selectedTable] || {};
-      const newQty = Math.max(0, (cur[itemId] || 0) + delta);
-      return {
-        ...prev,
-        [selectedTable]: { ...cur, [itemId]: newQty },
-      };
-    });
+    const cur = tableQuantities[selectedTable] || {};
+    const newQty = Math.max(0, (cur[itemId] || 0) + delta);
+    const newQuantities = { ...cur, [itemId]: newQty };
+
+    setTableQuantities(prev => ({
+      ...prev,
+      [selectedTable]: newQuantities,
+    }));
+
+    saveTableCart(selectedTable, newQuantities);
   };
 
   // ── Lọc danh sách món & Sắp xếp theo bảng chữ cái A-Z ────────────────
@@ -158,6 +174,7 @@ export default function Order({ menuItems, onNotify }) {
   // Xóa giỏ hàng của bàn hiện tại sau khi thanh toán
   const resetCurrentTable = () => {
     setTableQuantities(prev => ({ ...prev, [selectedTable]: {} }));
+    saveTableCart(selectedTable, {});
   };
 
   const handlePayWithoutReceipt = async () => {

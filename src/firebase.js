@@ -434,3 +434,49 @@ export const getLatestVersionConfig = async () => {
   }
   return null;
 };
+
+// ==========================================
+// 5. ĐỒNG BỘ GIỎ HÀNG THỜI GIAN THỰC (COLLECTION: gio_hang_tam)
+// ==========================================
+const COL_TABLE_CARTS = "gio_hang_tam";
+
+export const subscribeTableCarts = (callback) => {
+  if (isFirebaseConfigured && db) {
+    const q = collection(db, COL_TABLE_CARTS);
+    return onSnapshot(q, (snapshot) => {
+      const carts = {};
+      snapshot.forEach((d) => {
+        carts[d.id] = d.data().quantities || {};
+      });
+      callback(carts);
+    }, (error) => {
+      console.error("Lỗi lắng nghe giỏ hàng từ Firestore:", error);
+      callback(getLocalData("a18_table_quantities", {}));
+    });
+  } else {
+    const notify = () => callback(getLocalData("a18_table_quantities", {}));
+    notify();
+    window.addEventListener('a18_table_quantities_updated', notify);
+    return () => window.removeEventListener('a18_table_quantities_updated', notify);
+  }
+};
+
+export const saveTableCart = async (table, quantities) => {
+  if (isFirebaseConfigured && db) {
+    try {
+      const docRef = doc(db, COL_TABLE_CARTS, table);
+      await setDoc(docRef, {
+        quantities: quantities || {},
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error(`Lỗi khi lưu giỏ hàng của bàn ${table} lên Firestore:`, error);
+    }
+  } else {
+    const saved = getLocalData("a18_table_quantities", {});
+    saved[table] = quantities;
+    setLocalData("a18_table_quantities", saved);
+    window.dispatchEvent(new Event('a18_table_quantities_updated'));
+  }
+};
+
