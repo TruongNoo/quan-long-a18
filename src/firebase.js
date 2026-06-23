@@ -440,7 +440,7 @@ export const getLatestVersionConfig = async () => {
 // ==========================================
 const COL_TABLE_CARTS = "gio_hang_tam";
 
-export const subscribeTableCarts = (callback) => {
+export const subscribeTableCarts = (callback, onError) => {
   if (isFirebaseConfigured && db) {
     const q = collection(db, COL_TABLE_CARTS);
     return onSnapshot(q, (snapshot) => {
@@ -450,7 +450,10 @@ export const subscribeTableCarts = (callback) => {
       });
       callback(carts);
     }, (error) => {
-      console.error("Lỗi lắng nghe giỏ hàng từ Firestore:", error);
+      const msg = `Lỗi đồng bộ giỏ hàng: ${error.code || error.message}`;
+      console.error("[subscribeTableCarts]", error);
+      if (onError) onError(msg);
+      // Fallback về localStorage
       callback(getLocalData("a18_table_quantities", {}));
     });
   } else {

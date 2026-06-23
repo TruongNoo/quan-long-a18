@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, Minus, ShoppingCart, Printer, X, Check, Trash2, Utensils } from 'lucide-react';
 import { addTransaction, subscribeTableCarts, saveTableCart } from '../firebase';
 import { printBluetoothReceipt } from '../utils/bluetoothPrinter';
@@ -42,25 +42,27 @@ export default function Order({ menuItems, onNotify }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
 
-  // ── KEY FIX: Giỏ hàng TÁCH RIÊNG theo từng bàn và lưu trữ LocalStorage ─────────────────────
+  // ── Giỏ hàng tách riêng theo từng bàn ─────────────────────────────
+  // Khởi tạo từ localStorage để load nhanh khi mở app, sau đó Firestore sẽ cập nhật
   const [tableQuantities, setTableQuantities] = useState(() => {
-    const saved = localStorage.getItem('a18_table_quantities');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const merged = {};
-        tables.forEach(t => {
-          merged[t] = parsed[t] || {};
-        });
-        return merged;
-      } catch (e) {
-        console.error('Lỗi load giỏ hàng từ LocalStorage:', e);
-      }
-    }
     const init = {};
     tables.forEach(t => { init[t] = {}; });
+    try {
+      const saved = localStorage.getItem('a18_table_quantities');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        tables.forEach(t => { init[t] = parsed[t] || {}; });
+      }
+    } catch (e) {
+      console.error('Lỗi load giỏ hàng từ localStorage:', e);
+    }
     return init;
   });
+
+  // Ref để biết khi nào đang viết lên Firestore (tránh snapshot của chính mình gây flicker)
+  const isLocalUpdateRef = useRef(false);
+  // Ref để debounce save lên Firestore
+  const saveTimerRef = useRef({});
 
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
@@ -71,8 +73,9 @@ export default function Order({ menuItems, onNotify }) {
   const [deletingCartItem, setDeletingCartItem] = useState(null);
   const [deletingAllCart, setDeletingAllCart] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
+  const [syncError, setSyncError] = useState(null);
 
-  // Tự động lưu trạng thái vào LocalStorage khi thay đổi
+  // Lưu localStorage chỉ khi thay đổi
   useEffect(() => {
     localStorage.setItem('a18_active_order_type', activeOrderType);
   }, [activeOrderType]);
@@ -81,21 +84,29 @@ export default function Order({ menuItems, onNotify }) {
     localStorage.setItem('a18_selected_table', selectedTable);
   }, [selectedTable]);
 
+  // Lắng nghe Firestore realtime để đồng bộ giữa các thiết bị
   useEffect(() => {
-    localStorage.setItem('a18_table_quantities', JSON.stringify(tableQuantities));
-  }, [tableQuantities]);
-
-  // Lắng nghe thay đổi giỏ hàng từ Firebase để đồng bộ thời gian thực
-  useEffect(() => {
-    const unsubscribe = subscribeTableCarts((carts) => {
-      setTableQuantities(prev => {
-        const merged = {};
-        tables.forEach(t => {
-          merged[t] = carts[t] || {};
+    const unsubscribe = subscribeTableCarts(
+      (carts) => {
+        // Bỏ qua snapshot nếu chính chúng ta vừa ghi (tránh flicker)
+        if (isLocalUpdateRef.current) return;
+        setSyncError(null);
+        setTableQuantities(prev => {
+          const merged = {};
+          tables.forEach(t => {
+            merged[t] = carts[t] || {};
+          });
+          // Chỉ cập nhật localStorage khi nhận data từ Firestore (thiết bị khác)
+          localStorage.setItem('a18_table_quantities', JSON.stringify(merged));
+          return merged;
         });
-        return merged;
-      });
-    });
+      },
+      (errMsg) => {
+        // Callback lỗi – hiển thị thông báo đồng bộ thất bại
+        setSyncError(errMsg);
+        console.error('[Sync Error]', errMsg);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
@@ -107,19 +118,34 @@ export default function Order({ menuItems, onNotify }) {
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', minimumFractionDigits: 0 })
       .format(val).replace('₫', 'đ');
 
+  // ── Hàm debounced để save lên Firestore, tránh spam write liên tục ──
+  const debouncedSave = useCallback((table, quantities) => {
+    if (saveTimerRef.current[table]) clearTimeout(saveTimerRef.current[table]);
+    saveTimerRef.current[table] = setTimeout(() => {
+      isLocalUpdateRef.current = true;
+      saveTableCart(table, quantities).finally(() => {
+        // Sau 500ms cho phép nhận snapshot từ Firestore trở lại
+        setTimeout(() => { isLocalUpdateRef.current = false; }, 500);
+      });
+    }, 150);
+  }, []);
+
   // ── Tăng / giảm số lượng (chỉ ảnh hưởng đến bàn đang chọn) ─────────
-  const handleQtyChange = (itemId, delta) => {
-    const cur = tableQuantities[selectedTable] || {};
-    const newQty = Math.max(0, (cur[itemId] || 0) + delta);
-    const newQuantities = { ...cur, [itemId]: newQty };
+  const handleQtyChange = useCallback((itemId, delta) => {
+    setTableQuantities(prev => {
+      const cur = prev[selectedTable] || {};
+      const newQty = Math.max(0, (cur[itemId] || 0) + delta);
+      const newQuantities = { ...cur, [itemId]: newQty };
+      const newState = { ...prev, [selectedTable]: newQuantities };
 
-    setTableQuantities(prev => ({
-      ...prev,
-      [selectedTable]: newQuantities,
-    }));
+      // Lưu localStorage ngay lập tức
+      localStorage.setItem('a18_table_quantities', JSON.stringify(newState));
+      // Ghi lên Firestore sau 150ms (debounced)
+      debouncedSave(selectedTable, newQuantities);
 
-    saveTableCart(selectedTable, newQuantities);
-  };
+      return newState;
+    });
+  }, [selectedTable, debouncedSave]);
 
   // ── Lọc danh sách món & Sắp xếp theo bảng chữ cái A-Z ────────────────
   const filteredItems = menuItems
@@ -173,8 +199,20 @@ export default function Order({ menuItems, onNotify }) {
 
   // Xóa giỏ hàng của bàn hiện tại sau khi thanh toán
   const resetCurrentTable = () => {
-    setTableQuantities(prev => ({ ...prev, [selectedTable]: {} }));
-    saveTableCart(selectedTable, {});
+    const emptyCart = {};
+    setTableQuantities(prev => {
+      const newState = { ...prev, [selectedTable]: emptyCart };
+      localStorage.setItem('a18_table_quantities', JSON.stringify(newState));
+      return newState;
+    });
+    // Xóa debounce timer nếu có và ghi ngay lên Firestore
+    if (saveTimerRef.current[selectedTable]) {
+      clearTimeout(saveTimerRef.current[selectedTable]);
+    }
+    isLocalUpdateRef.current = true;
+    saveTableCart(selectedTable, emptyCart).finally(() => {
+      setTimeout(() => { isLocalUpdateRef.current = false; }, 500);
+    });
   };
 
   const handlePayWithoutReceipt = async () => {
