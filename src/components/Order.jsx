@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Plus, Minus, ShoppingCart, Printer, X, Check, Trash2, Utensils } from 'lucide-react';
 import { addTransaction, subscribeTableCarts, saveTableCart } from '../firebase';
-import { printBluetoothReceipt } from '../utils/bluetoothPrinter';
+import { canvasToEscPosRasterBytes, uint8ArrayToBase64 } from '../utils/bluetoothPrinter';
+import BluetoothPrinter from '../utils/bluetoothPrinterPlugin';
 
 export default function Order({ menuItems, onNotify }) {
   const tables = ['Mang về', 'Bàn 1', 'Bàn 2', 'Bàn 3', 'Bàn 4', 'Bàn 5', 'Bàn 6', 'Bàn 7', 'Bàn 8'];
@@ -361,15 +362,35 @@ export default function Order({ menuItems, onNotify }) {
     const printerAddress = localStorage.getItem('selected_printer_address');
 
     if (printerType === 'bluetooth' && printerAddress) {
+      // ── GIẢI PHÁP TRIỆT ĐỂ: Gửi RASTER IMAGE qua Bluetooth ──────────────
+      // Canvas 2D render hoá đơn có dấu → bitmap pixel → ESC/POS GS v 0
+      // Máy in đọc pixel, không cần font/encoding → dấu tiếng Việt đúng 100%
       try {
-        await printBluetoothReceipt(orderDetails, selectedTable, totalCost);
+        triggerToast('⏳ Đang chuẩn bị in...');
+
+        // 1. Vẽ hoá đơn lên canvas (có dấu tiếng Việt)
+        const canvas = buildReceiptCanvas();
+
+        // 2. Chuyển canvas → ESC/POS raster bytes (GS v 0)
+        const bytes = canvasToEscPosRasterBytes(canvas);
+        const base64Data = uint8ArrayToBase64(bytes);
+
+        // 3. Kiểm tra kết nối Bluetooth
+        const status = await BluetoothPrinter.isConnected();
+        if (!status.connected) {
+          triggerToast('⏳ Đang kết nối máy in...');
+          await BluetoothPrinter.connect({ address: printerAddress });
+        }
+
+        // 4. Gửi dữ liệu in
+        await BluetoothPrinter.print({ base64Data });
         await finishPayment();
       } catch (err) {
-        console.error(err);
-        triggerToast(`✗ Lỗi in Bluetooth: ${err.message || err}. Đang mở in hệ thống...`);
-        printViaCanvas();
+        console.error('Bluetooth raster print error:', err);
+        triggerToast(`✗ Lỗi in: ${err.message || err}`);
       }
     } else {
+      // Không có Bluetooth: in qua hệ thống bằng canvas image
       printViaCanvas();
     }
   };

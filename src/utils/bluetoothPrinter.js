@@ -11,6 +11,79 @@ export const removeVietnameseAccents = (str) => {
     .replace(/[^ -~]/g, ''); // Keep only printable ASCII (space to tilde)
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GIẢI PHÁP TRIỆT ĐỂ: Chuyển canvas thành ESC/POS Raster Image (GS v 0)
+// Cách hoạt động: gửi PIXEL DATA thay vì text → máy in đọc pixel, không cần
+// font/encoding → dấu tiếng Việt hiển thị 100% đúng trên mọi máy in thermal
+// ─────────────────────────────────────────────────────────────────────────────
+export const canvasToEscPosRasterBytes = (canvas) => {
+  const ctx = canvas.getContext('2d');
+  const w   = canvas.width;
+  const h   = canvas.height;
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const pixels    = imageData.data; // RGBA flat array
+
+  // ESC/POS yêu cầu chiều rộng tính bằng bytes (mỗi byte = 8 pixels)
+  const widthBytes = Math.ceil(w / 8);
+
+  // Chuyển mỗi pixel sang 1 bit (đen=1, trắng=0), đóng gói 8 bit/byte
+  const bitmapRows = [];
+  for (let row = 0; row < h; row++) {
+    for (let byteIdx = 0; byteIdx < widthBytes; byteIdx++) {
+      let byte = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const col = byteIdx * 8 + bit;
+        if (col < w) {
+          const idx = (row * w + col) * 4;
+          const r = pixels[idx];
+          const g = pixels[idx + 1];
+          const b = pixels[idx + 2];
+          // Độ sáng (luminance): pixel tối → in đen (bit=1)
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (lum < 128) {
+            byte |= (0x80 >> bit); // MSB first
+          }
+        }
+      }
+      bitmapRows.push(byte);
+    }
+  }
+
+  const ESC = 0x1B;
+  const GS  = 0x1D;
+
+  // Tham số chiều rộng và chiều cao cho lệnh GS v 0
+  const xL = widthBytes & 0xFF;
+  const xH = (widthBytes >> 8) & 0xFF;
+  const yL = h & 0xFF;
+  const yH = (h >> 8) & 0xFF;
+
+  // Header: init → center-align → GS v 0 (Raster Bit Image command)
+  const header = new Uint8Array([
+    ESC, 0x40,             // Initialize printer
+    ESC, 0x61, 0x01,       // Center alignment
+    GS,  0x76, 0x30, 0x00, // GS v 0 – Raster image, normal density
+    xL, xH, yL, yH,        // Width (bytes) & Height (dots)
+  ]);
+
+  const bitmap = new Uint8Array(bitmapRows);
+
+  // Footer: feed 4 lines + partial cut
+  const footer = new Uint8Array([
+    ESC, 0x64, 0x04,       // Feed 4 lines
+    GS,  0x56, 0x42, 0x00, // Partial cut
+  ]);
+
+  // Ghép tất cả lại
+  const result = new Uint8Array(header.length + bitmap.length + footer.length);
+  result.set(header, 0);
+  result.set(bitmap, header.length);
+  result.set(footer, header.length + bitmap.length);
+  return result;
+};
+
+
+
 // Text alignment/spacing helpers (assuming 32 columns for 58mm printer)
 const padRight = (str, len) => str.padEnd(len, ' ');
 const padLeft = (str, len) => str.padStart(len, ' ');
