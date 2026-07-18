@@ -232,8 +232,132 @@ export default function Order({ menuItems, onNotify }) {
     setShowReceipt(true);
   };
 
+  // ── Vẽ hoá đơn lên Canvas 2D – giải quyết dấu tiếng Việt trên máy in thermal ──
+  const buildReceiptCanvas = () => {
+    const PX_PER_MM = 8;          // 8px = 1mm (203 DPI giai đoạn render)
+    const W = 58 * PX_PER_MM;     // 464px ~ 58mm
+    const PAD = 4 * PX_PER_MM;    // 4mm padding 2 bên
+    const INNER = W - PAD * 2;    // vùng nội dung
+
+    // Ước tính chiều cao
+    const BASE_H = 120 * PX_PER_MM + orderDetails.length * 16 * PX_PER_MM;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = BASE_H;
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, BASE_H);
+    ctx.fillStyle = '#000';
+
+    let y = PAD;
+    const lineH = (mm) => mm * PX_PER_MM;
+
+    // -- hàm tiện ích --
+    const text  = (str, x, yy, opts = {}) => {
+      ctx.font = `${opts.bold ? 'bold ' : ''}${opts.size || 12}px Arial, sans-serif`;
+      ctx.textAlign = opts.align || 'left';
+      ctx.fillText(str, x, yy);
+      ctx.textAlign = 'left';
+    };
+    const centerText = (str, yy, size = 12, bold = false) => {
+      ctx.font = `${bold ? 'bold ' : ''}${size}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(str, W / 2, yy);
+      ctx.textAlign = 'left';
+    };
+    const dashedLine = (yy) => {
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(PAD, yy); ctx.lineTo(W - PAD, yy); ctx.stroke();
+      ctx.setLineDash([]);
+    };
+
+    // === HEADER ===
+    y += lineH(6);
+    centerText('QUÁN LÒNG NGON A18', y, 18, true);  y += lineH(7);
+    centerText('ĐC: 321 Quan Nhân, Thanh Xuân, Hà Nội', y, 10);  y += lineH(5);
+    centerText('SĐT: 0984.873.113', y, 10);  y += lineH(6);
+
+    dashedLine(y);  y += lineH(5);
+    centerText('HÓA ĐƠN THANH TOÁN', y, 13, true);  y += lineH(7);
+
+    // Info
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('vi-VN') + ' - ' + now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const hdCode  = 'HD' + Date.now().toString().slice(-6);
+
+    text(`Bàn: ${selectedTable}`, PAD, y, { size: 11, bold: true });  y += lineH(5);
+    text(`Ngày: ${dateStr}`, PAD, y, { size: 10 });  y += lineH(5);
+    text(`Mã HĐ: ${hdCode}`, PAD, y, { size: 10 });  y += lineH(6);
+
+    dashedLine(y);  y += lineH(5);
+
+    // === TABLE HEADER ===
+    ctx.font = 'bold 10px Arial, sans-serif';
+    text('Tên món', PAD, y, { size: 10, bold: true });
+    text('SL', PAD + INNER * 0.58, y, { size: 10, bold: true, align: 'center' });
+    text('Đơn giá', PAD + INNER * 0.72, y, { size: 10, bold: true });
+    text('T.Tiền', W - PAD, y, { size: 10, bold: true, align: 'right' });
+    y += lineH(5);
+    dashedLine(y);  y += lineH(4);
+
+    // === TABLE ROWS ===
+    const formatNum = (n) => new Intl.NumberFormat('vi-VN').format(n);
+    orderDetails.forEach((d) => {
+      // Dòng 1: tên món (có thể wrap)
+      const maxNameW = INNER * 0.55;
+      ctx.font = '11px Arial, sans-serif';
+      const words = d.item.name.split(' ');
+      let line1 = '', line2 = '';
+      words.forEach(w => {
+        const test = line1 ? line1 + ' ' + w : w;
+        if (ctx.measureText(test).width <= maxNameW) line1 = test;
+        else line2 = line2 ? line2 + ' ' + w : w;
+      });
+
+      // Trong khi name vừa 1 dòng: hiển thị giống cũ (1 dòng)
+      if (!line2) {
+        text(d.item.name, PAD, y, { size: 11 });
+        text(String(d.qty), PAD + INNER * 0.58, y, { size: 11, align: 'center' });
+        text(formatNum(d.item.price), PAD + INNER * 0.72, y, { size: 11 });
+        text(formatNum(d.total), W - PAD, y, { size: 11, align: 'right' });
+        y += lineH(5.5);
+      } else {
+        // Name dài: dòng 1 tên, dòng 2 các số
+        text(line1, PAD, y, { size: 11 });
+        y += lineH(4.5);
+        text(line2, PAD, y, { size: 11 });
+        text(String(d.qty), PAD + INNER * 0.58, y, { size: 11, align: 'center' });
+        text(formatNum(d.item.price), PAD + INNER * 0.72, y, { size: 11 });
+        text(formatNum(d.total), W - PAD, y, { size: 11, align: 'right' });
+        y += lineH(5.5);
+      }
+    });
+
+    dashedLine(y);  y += lineH(5);
+
+    // === TỔNG CỘNG ===
+    ctx.font = 'bold 12px Arial, sans-serif';
+    text('TỔNG CỘNG:', PAD, y, { size: 12, bold: true });
+    text(formatNum(totalCost) + ' đ', W - PAD, y, { size: 12, bold: true, align: 'right' });
+    y += lineH(7);
+
+    dashedLine(y);  y += lineH(5);
+
+    // === FOOTER ===
+    centerText('Cảm ơn quý khách!', y, 11, true);  y += lineH(5);
+    centerText('Hẹn gặp lại quý khách lần sau.', y, 10);  y += lineH(8);
+
+    // Cắt canvas theo chiều cao thực tế
+    const trimmed = document.createElement('canvas');
+    trimmed.width = W;
+    trimmed.height = y;
+    trimmed.getContext('2d').drawImage(canvas, 0, 0);
+    return trimmed;
+  };
+
   const handlePrint = async () => {
-    const printerType = localStorage.getItem('printer_connection_type') || 'system';
+    const printerType    = localStorage.getItem('printer_connection_type') || 'system';
     const printerAddress = localStorage.getItem('selected_printer_address');
 
     if (printerType === 'bluetooth' && printerAddress) {
@@ -242,12 +366,50 @@ export default function Order({ menuItems, onNotify }) {
       } catch (err) {
         console.error(err);
         triggerToast(`✗ Lỗi in Bluetooth: ${err.message || err}. Đang mở in hệ thống...`);
-        window.print();
+        printViaCanvas();
+        return;
       }
     } else {
-      window.print();
+      printViaCanvas();
+      return;
     }
 
+    await finishPayment();
+  };
+
+  // In bằng canvas – đảm bảo dấu tiếng Việt hiển thị đúng
+  const printViaCanvas = async () => {
+    const canvas  = buildReceiptCanvas();
+    const imgData = canvas.toDataURL('image/png');
+    const pw = 58;  // mm
+
+    const win = window.open('', '_blank', 'width=300,height=600');
+    if (!win) {
+      triggerToast('⚠️ Chặn popup – vui lòng cho phép mở cửa sổ mới');
+      return;
+    }
+    win.document.write(`<!DOCTYPE html><html><head>
+      <style>
+        @page { size: ${pw}mm auto; margin: 0; }
+        body  { margin: 0; padding: 0; background: #fff; }
+        img   { width: ${pw}mm; display: block; }
+      </style>
+    </head><body>
+      <img src="${imgData}" />
+    </body></html>`);
+    win.document.close();
+    // Chờ image load xong rồi mới in
+    win.onload = () => {
+      setTimeout(() => {
+        win.focus();
+        win.print();
+        win.close();
+      }, 400);
+    };
+    await finishPayment();
+  };
+
+  const finishPayment = async () => {
     const desc = orderDetails.map(d => `${d.item.name} x${d.qty}`).join(', ');
     const cost = totalCost;
     await saveOrderToDatabase();
@@ -258,6 +420,7 @@ export default function Order({ menuItems, onNotify }) {
     setShowReceipt(false);
     triggerToast('✓ Đã in hoá đơn và thanh toán!');
   };
+
 
   const triggerToast = (msg) => {
     setToastMsg(msg);
@@ -556,11 +719,12 @@ export default function Order({ menuItems, onNotify }) {
 
               <div className="bill-divider" />
 
-              {/* Bảng món */}
+              {/* Cột: Tên món | SL | Đơn giá | Thành tiền */}
               <div className="bill-table-header">
                 <span>Tên món</span>
                 <span style={{ textAlign: 'center' }}>SL</span>
-                <span style={{ textAlign: 'right' }}>Thành tiền</span>
+                <span style={{ textAlign: 'right' }}>Đơn giá</span>
+                <span style={{ textAlign: 'right' }}>T.Tiền</span>
               </div>
               <div className="bill-divider" />
 
@@ -568,7 +732,12 @@ export default function Order({ menuItems, onNotify }) {
                 <div key={i} className="bill-table-row">
                   <span className="bill-item-name">{d.item.name}</span>
                   <span style={{ textAlign: 'center' }}>{d.qty}</span>
-                  <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{formatCurrency(d.total)}</span>
+                  <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {new Intl.NumberFormat('vi-VN').format(d.item.price)}
+                  </span>
+                  <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: '700' }}>
+                    {new Intl.NumberFormat('vi-VN').format(d.total)}
+                  </span>
                 </div>
               ))}
 

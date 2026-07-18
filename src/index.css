@@ -1425,18 +1425,18 @@ input:focus {
 
 .bill-table-header {
   display: grid;
-  grid-template-columns: 1fr 28px 62px;
+  grid-template-columns: 1fr 22px 52px 52px;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 9px;
   margin-bottom: 4px;
   gap: 2px;
 }
 
 .bill-table-row {
   display: grid;
-  grid-template-columns: 1fr 28px 62px;
+  grid-template-columns: 1fr 22px 52px 52px;
   margin-bottom: 3px;
-  font-size: 10px;
+  font-size: 9px;
   align-items: start;
   gap: 2px;
 }
