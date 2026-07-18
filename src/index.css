@@ -1672,10 +1672,16 @@ input:focus {
 
 /* Print styles for 57mm thermal receipt paper */
 @media print {
-  /* Khai báo khổ giấy 57mm */
+  /* Khổ giấy 58mm – in ảnh canvas (không in text) */
   @page {
-    size: 57mm auto;
-    margin: 2mm 1mm;
+    size: 58mm auto;
+    margin: 0;
+  }
+
+  body, html {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
   }
 
   body * {
@@ -1690,44 +1696,21 @@ input:focus {
     position: fixed !important;
     left: 0 !important;
     top: 0 !important;
-    width: 55mm !important;
-    max-width: 55mm !important;
+    width: 58mm !important;
+    max-width: 58mm !important;
+    padding: 0 !important;
+    margin: 0 !important;
     background: white !important;
-    color: black !important;
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
-    padding: 2mm 1.5mm !important;
-    /* Font có dấu tiếng Việt */
-    font-family: 'Noto Sans', 'Segoe UI', Arial, sans-serif !important;
-    font-size: 10pt !important;
-    line-height: 1.4 !important;
+    box-sizing: border-box !important;
   }
 
-  .printable-area .bill-brand {
-    font-size: 11pt !important;
-    font-weight: 900 !important;
-  }
-
-  .printable-area .bill-table-header,
-  .printable-area .bill-table-row {
-    grid-template-columns: 1fr 22px 52px !important;
-    font-size: 9pt !important;
-  }
-
-  .printable-area .bill-total-row {
-    font-size: 11pt !important;
-    font-weight: 800 !important;
-  }
-
-  .printable-area .bill-footer {
-    font-size: 9pt !important;
-  }
-
-  /* Ẩn phần header/footer của trình duyệt */
-  body, html {
-    background: white !important;
-    color: black !important;
+  /* Ảnh canvas chiếm toàn bộ chiều rộng */
+  .printable-area img {
+    width: 100% !important;
+    display: block !important;
   }
 }
 

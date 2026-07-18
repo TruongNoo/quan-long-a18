@@ -363,50 +363,53 @@ export default function Order({ menuItems, onNotify }) {
     if (printerType === 'bluetooth' && printerAddress) {
       try {
         await printBluetoothReceipt(orderDetails, selectedTable, totalCost);
+        await finishPayment();
       } catch (err) {
         console.error(err);
         triggerToast(`✗ Lỗi in Bluetooth: ${err.message || err}. Đang mở in hệ thống...`);
         printViaCanvas();
-        return;
       }
     } else {
       printViaCanvas();
-      return;
     }
-
-    await finishPayment();
   };
 
-  // In bằng canvas – đảm bảo dấu tiếng Việt hiển thị đúng
-  const printViaCanvas = async () => {
+  // In bằng canvas – ĐẢM BẢO dấu tiếng Việt trên MỌI máy in thermal
+  // Cách hoạt động: thay HTML text bằng ảnh PNG (pixel) → máy in nhận pixel, không qua font
+  const printViaCanvas = () => {
     const canvas  = buildReceiptCanvas();
     const imgData = canvas.toDataURL('image/png');
-    const pw = 58;  // mm
 
-    const win = window.open('', '_blank', 'width=300,height=600');
-    if (!win) {
-      triggerToast('⚠️ Chặn popup – vui lòng cho phép mở cửa sổ mới');
+    const target = document.getElementById('print-section-target');
+    if (!target) {
+      finishPayment();
       return;
     }
-    win.document.write(`<!DOCTYPE html><html><head>
-      <style>
-        @page { size: ${pw}mm auto; margin: 0; }
-        body  { margin: 0; padding: 0; background: #fff; }
-        img   { width: ${pw}mm; display: block; }
-      </style>
-    </head><body>
-      <img src="${imgData}" />
-    </body></html>`);
-    win.document.close();
-    // Chờ image load xong rồi mới in
-    win.onload = () => {
+
+    // Lưu nội dung HTML gốc
+    const savedHTML = target.innerHTML;
+    const savedPadding = target.style.padding;
+
+    // Thay toàn bộ nội dung bằng ảnh canvas
+    target.innerHTML = '';
+    target.style.padding = '0';
+    const img = document.createElement('img');
+    img.src = imgData;
+    img.style.cssText = 'width:100%;display:block;';
+    target.appendChild(img);
+
+    // Chờ 1 frame để browser vẽ ảnh xong, rồi gọi print
+    requestAnimationFrame(() => {
       setTimeout(() => {
-        win.focus();
-        win.print();
-        win.close();
-      }, 400);
-    };
-    await finishPayment();
+        window.print();
+
+        // Khôi phục nội dung HTML gốc sau khi in
+        target.innerHTML = savedHTML;
+        target.style.padding = savedPadding || '';
+
+        finishPayment();
+      }, 200);
+    });
   };
 
   const finishPayment = async () => {
@@ -422,6 +425,7 @@ export default function Order({ menuItems, onNotify }) {
   };
 
 
+
   const triggerToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 2800);
@@ -432,32 +436,42 @@ export default function Order({ menuItems, onNotify }) {
   return (
     <div style={{ display: 'flex', flex: '1', flexDirection: 'column', gap: '15px', position: 'relative' }}>
 
-      {/* CSS in ấn – khổ giấy 57mm, font có dấu tiếng Việt */}
+      {/* CSS in ấn – khổ giấy 58mm, in ảnh canvas (không in text) */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700;900&display=swap');
         @media print {
           @page {
-            size: 57mm auto;
-            margin: 2mm 1mm;
+            size: 58mm auto;
+            margin: 0;
           }
-          body * { visibility: hidden; }
-          #print-section-target, #print-section-target * { visibility: visible; }
-          #print-section-target {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 55mm;
-            padding: 2mm 1.5mm;
+          body, html {
+            margin: 0 !important;
+            padding: 0 !important;
             background: white !important;
-            color: black !important;
-            font-family: 'Noto Sans', 'Segoe UI', Arial, sans-serif !important;
-            font-size: 10pt !important;
-            box-sizing: border-box;
-            box-shadow: none;
-            border-radius: 0;
+          }
+          body * { visibility: hidden !important; }
+          #print-section-target,
+          #print-section-target * { visibility: visible !important; }
+          #print-section-target {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 58mm !important;
+            max-width: 58mm !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: white !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-sizing: border-box !important;
+          }
+          #print-section-target img {
+            width: 100% !important;
+            display: block !important;
           }
         }
       `}</style>
+
 
       {/* ── Chọn loại hình phục vụ (Mang về / Ăn tại bàn) ──────────────── */}
       <div className="order-type-selector" style={{
