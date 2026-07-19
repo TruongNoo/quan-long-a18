@@ -235,15 +235,20 @@ export default function Order({ menuItems, onNotify }) {
 
   // ── Vẽ hoá đơn lên Canvas 2D – giải quyết dấu tiếng Việt trên máy in thermal ──
   const buildReceiptCanvas = () => {
-    const PX_PER_MM = 8;          // 8px = 1mm (203 DPI giai đoạn render)
-    const W = 58 * PX_PER_MM;     // 464px ~ 58mm
-    const PAD = 4 * PX_PER_MM;    // 4mm padding 2 bên
-    const INNER = W - PAD * 2;    // vùng nội dung
+    // ─ Thông số máy in 58mm ─────────────────────────────────────────────────
+    // - Độ phân giải: 203 DPI → 1mm = 8 dots
+    // - Chiều rộng in thực tế (printable area): 48mm = 384 dots
+    //   (58mm trừ ~5mm lề mỗi bên, đây là chuẩn của hầu hết máy in 58mm)
+    // - Nếu dùng 464px (58mm) printer sẽ scale xuống 384 → mờ và bị cắt
+    const DPI_MM  = 8;   // 8 dots/mm tại 203 DPI
+    const W       = 384; // 48mm × 8 = 384 dots — khớp chính xác vùng in thực tế
+    const PAD     = 8;   // 1mm padding mỗi bên (trong vùng in)
+    const INNER   = W - PAD * 2;
 
-    // Ước tính chiều cao
-    const BASE_H = 120 * PX_PER_MM + orderDetails.length * 16 * PX_PER_MM;
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
+    // Ước tính chiều cao tối đa
+    const BASE_H  = 200 * DPI_MM + orderDetails.length * 28 * DPI_MM;
+    const canvas  = document.createElement('canvas');
+    canvas.width  = W;
     canvas.height = BASE_H;
 
     const ctx = canvas.getContext('2d');
@@ -251,111 +256,121 @@ export default function Order({ menuItems, onNotify }) {
     ctx.fillRect(0, 0, W, BASE_H);
     ctx.fillStyle = '#000';
 
-    let y = PAD;
-    const lineH = (mm) => mm * PX_PER_MM;
+    let y = PAD + 8;
 
-    // -- hàm tiện ích --
-    const text  = (str, x, yy, opts = {}) => {
-      ctx.font = `${opts.bold ? 'bold ' : ''}${opts.size || 12}px Arial, sans-serif`;
-      ctx.textAlign = opts.align || 'left';
+    // ── hàm tiện ích ────────────────────────────────────────────────────────
+    const drawText = (str, x, yy, size = 20, bold = false, align = 'left') => {
+      ctx.font = `${bold ? 'bold ' : ''}${size}px Arial, sans-serif`;
+      ctx.textAlign = align;
       ctx.fillText(str, x, yy);
       ctx.textAlign = 'left';
     };
-    const centerText = (str, yy, size = 12, bold = false) => {
-      ctx.font = `${bold ? 'bold ' : ''}${size}px Arial, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText(str, W / 2, yy);
-      ctx.textAlign = 'left';
-    };
+    const centerText = (str, yy, size = 20, bold = false) =>
+      drawText(str, W / 2, yy, size, bold, 'center');
+    const rightText  = (str, yy, size = 20, bold = false) =>
+      drawText(str, W - PAD, yy, size, bold, 'right');
+
     const dashedLine = (yy) => {
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath(); ctx.moveTo(PAD, yy); ctx.lineTo(W - PAD, yy); ctx.stroke();
+      ctx.setLineDash([6, 5]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PAD, yy);
+      ctx.lineTo(W - PAD, yy);
+      ctx.stroke();
       ctx.setLineDash([]);
     };
 
-    // === HEADER ===
-    y += lineH(6);
-    centerText('QUÁN LÒNG NGON A18', y, 18, true);  y += lineH(7);
-    centerText('ĐC: 321 Quan Nhân, Thanh Xuân, Hà Nội', y, 10);  y += lineH(5);
-    centerText('SĐT: 0984.873.113', y, 10);  y += lineH(6);
+    const lh = (mm) => Math.round(mm * DPI_MM); // line height helper
 
-    dashedLine(y);  y += lineH(5);
-    centerText('HÓA ĐƠN THANH TOÁN', y, 13, true);  y += lineH(7);
+    // ── HEADER ──────────────────────────────────────────────────────────────
+    y += lh(3);
+    centerText('QUÁN LÒNG NGON A18', y, 30, true);  y += lh(11);
+    centerText('ĐC: 321 Quan Nhân, Thanh Xuân, Hà Nội', y, 17);  y += lh(7);
+    centerText('SĐT: 0984.873.113', y, 17);  y += lh(8);
 
-    // Info
-    const now = new Date();
+    dashedLine(y);  y += lh(5);
+    centerText('HÓA ĐƠN THANH TOÁN', y, 22, true);  y += lh(10);
+
+    // ── INFO ────────────────────────────────────────────────────────────────
+    const now     = new Date();
     const dateStr = now.toLocaleDateString('vi-VN') + ' - ' + now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const hdCode  = 'HD' + Date.now().toString().slice(-6);
 
-    text(`Bàn: ${selectedTable}`, PAD, y, { size: 11, bold: true });  y += lineH(5);
-    text(`Ngày: ${dateStr}`, PAD, y, { size: 10 });  y += lineH(5);
-    text(`Mã HĐ: ${hdCode}`, PAD, y, { size: 10 });  y += lineH(6);
+    drawText(`Bàn: ${selectedTable}`, PAD, y, 20, true);  y += lh(8);
+    drawText(`Ngày: ${dateStr}`, PAD, y, 18);  y += lh(7);
+    drawText(`Mã HĐ: ${hdCode}`, PAD, y, 18);  y += lh(8);
 
-    dashedLine(y);  y += lineH(5);
+    dashedLine(y);  y += lh(5);
 
-    // === TABLE HEADER ===
-    ctx.font = 'bold 10px Arial, sans-serif';
-    text('Tên món', PAD, y, { size: 10, bold: true });
-    text('SL', PAD + INNER * 0.58, y, { size: 10, bold: true, align: 'center' });
-    text('Đơn giá', PAD + INNER * 0.72, y, { size: 10, bold: true });
-    text('T.Tiền', W - PAD, y, { size: 10, bold: true, align: 'right' });
-    y += lineH(5);
-    dashedLine(y);  y += lineH(4);
+    // ── TABLE HEADER (4 cột: Tên món | SL | Đơn giá | T.Tiền) ──────────────
+    // Vị trí cột (px từ trái canvas)
+    const colSL    = PAD + Math.round(INNER * 0.56); // SL center
+    const colGia   = PAD + Math.round(INNER * 0.68); // Đơn giá left
+    const colTotal = W - PAD;                         // T.Tiền right
 
-    // === TABLE ROWS ===
-    const formatNum = (n) => new Intl.NumberFormat('vi-VN').format(n);
+    drawText('Tên món', PAD, y, 18, true);
+    drawText('SL',  colSL, y, 18, true, 'center');
+    drawText('Đơn giá', colGia, y, 18, true);
+    rightText('T.Tiền', y, 18, true);
+    y += lh(6);
+    dashedLine(y);  y += lh(5);
+
+    // ── TABLE ROWS ───────────────────────────────────────────────────────────
+    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
+    const ITEM_FONT = 19;
+    const maxNameW  = INNER * 0.54; // tối đa 54% chiều rộng cho tên món
+
     orderDetails.forEach((d) => {
-      // Dòng 1: tên món (có thể wrap)
-      const maxNameW = INNER * 0.55;
-      ctx.font = '11px Arial, sans-serif';
+      ctx.font = `${ITEM_FONT}px Arial, sans-serif`;
+      // Word-wrap tên món
       const words = d.item.name.split(' ');
-      let line1 = '', line2 = '';
+      const lines = [];
+      let cur = '';
       words.forEach(w => {
-        const test = line1 ? line1 + ' ' + w : w;
-        if (ctx.measureText(test).width <= maxNameW) line1 = test;
-        else line2 = line2 ? line2 + ' ' + w : w;
+        const test = cur ? cur + ' ' + w : w;
+        if (ctx.measureText(test).width <= maxNameW) {
+          cur = test;
+        } else {
+          if (cur) lines.push(cur);
+          cur = w;
+        }
       });
+      if (cur) lines.push(cur);
 
-      // Trong khi name vừa 1 dòng: hiển thị giống cũ (1 dòng)
-      if (!line2) {
-        text(d.item.name, PAD, y, { size: 11 });
-        text(String(d.qty), PAD + INNER * 0.58, y, { size: 11, align: 'center' });
-        text(formatNum(d.item.price), PAD + INNER * 0.72, y, { size: 11 });
-        text(formatNum(d.total), W - PAD, y, { size: 11, align: 'right' });
-        y += lineH(5.5);
-      } else {
-        // Name dài: dòng 1 tên, dòng 2 các số
-        text(line1, PAD, y, { size: 11 });
-        y += lineH(4.5);
-        text(line2, PAD, y, { size: 11 });
-        text(String(d.qty), PAD + INNER * 0.58, y, { size: 11, align: 'center' });
-        text(formatNum(d.item.price), PAD + INNER * 0.72, y, { size: 11 });
-        text(formatNum(d.total), W - PAD, y, { size: 11, align: 'right' });
-        y += lineH(5.5);
-      }
+      // Vẽ dòng đầu + số liệu trên cùng dòng (hoặc dòng cuối nếu có wrap)
+      lines.forEach((ln, li) => {
+        drawText(ln, PAD, y, ITEM_FONT);
+        if (li === lines.length - 1) {
+          // Số liệu chỉ vẽ ở dòng cuối của tên món
+          drawText(String(d.qty), colSL, y, ITEM_FONT, false, 'center');
+          drawText(fmt(d.item.price), colGia, y, ITEM_FONT);
+          rightText(fmt(d.total), y, ITEM_FONT, true);
+        }
+        y += lh(8);
+      });
     });
 
-    dashedLine(y);  y += lineH(5);
+    dashedLine(y);  y += lh(5);
 
-    // === TỔNG CỘNG ===
-    ctx.font = 'bold 12px Arial, sans-serif';
-    text('TỔNG CỘNG:', PAD, y, { size: 12, bold: true });
-    text(formatNum(totalCost) + ' đ', W - PAD, y, { size: 12, bold: true, align: 'right' });
-    y += lineH(7);
+    // ── TỔNG CỘNG ────────────────────────────────────────────────────────────
+    drawText('TỔNG CỘNG:', PAD, y, 22, true);
+    rightText(fmt(totalCost) + ' đ', y, 22, true);
+    y += lh(10);
 
-    dashedLine(y);  y += lineH(5);
+    dashedLine(y);  y += lh(6);
 
-    // === FOOTER ===
-    centerText('Cảm ơn quý khách!', y, 11, true);  y += lineH(5);
-    centerText('Hẹn gặp lại quý khách lần sau.', y, 10);  y += lineH(8);
+    // ── FOOTER ───────────────────────────────────────────────────────────────
+    centerText('Cảm ơn quý khách!', y, 19, true);  y += lh(8);
+    centerText('Hẹn gặp lại quý khách lần sau.', y, 17);  y += lh(12);
 
     // Cắt canvas theo chiều cao thực tế
     const trimmed = document.createElement('canvas');
-    trimmed.width = W;
+    trimmed.width  = W;
     trimmed.height = y;
     trimmed.getContext('2d').drawImage(canvas, 0, 0);
     return trimmed;
   };
+
 
   const handlePrint = async () => {
     const printerType    = localStorage.getItem('printer_connection_type') || 'system';
