@@ -3,6 +3,7 @@ import { Search, Plus, Minus, ShoppingCart, Printer, X, Check, Trash2, Utensils 
 import { addTransaction, subscribeTableCarts, saveTableCart } from '../firebase';
 import { canvasToEscPosRasterBytes, uint8ArrayToBase64 } from '../utils/bluetoothPrinter';
 import BluetoothPrinter from '../utils/bluetoothPrinterPlugin';
+import html2canvas from 'html2canvas';
 
 export default function Order({ menuItems, onNotify }) {
   const tables = ['Mang về', 'Bàn 1', 'Bàn 2', 'Bàn 3', 'Bàn 4', 'Bàn 5', 'Bàn 6', 'Bàn 7', 'Bàn 8'];
@@ -377,35 +378,65 @@ export default function Order({ menuItems, onNotify }) {
     const printerAddress = localStorage.getItem('selected_printer_address');
 
     if (printerType === 'bluetooth' && printerAddress) {
-      // ── GIẢI PHÁP TRIỆT ĐỂ: Gửi RASTER IMAGE qua Bluetooth ──────────────
-      // Canvas 2D render hoá đơn có dấu → bitmap pixel → ESC/POS GS v 0
-      // Máy in đọc pixel, không cần font/encoding → dấu tiếng Việt đúng 100%
+      // ═══════════════════════════════════════════════════════════════════
+      // GIẢI PHÁP: dùng html2canvas chụp đúng element HTML preview
+      // → output in = output màn hình, dấu tiếng Việt đúng 100%
+      // ═══════════════════════════════════════════════════════════════════
       try {
         triggerToast('⏳ Đang chuẩn bị in...');
 
-        // 1. Vẽ hoá đơn lên canvas (có dấu tiếng Việt)
-        const canvas = buildReceiptCanvas();
+        // 1. Chờ 1 frame để React render xong element trước khi chụp
+        await new Promise(r => requestAnimationFrame(r));
 
-        // 2. Chuyển canvas → ESC/POS raster bytes (GS v 0)
-        const bytes = canvasToEscPosRasterBytes(canvas);
+        const receiptEl = document.getElementById('print-section-target');
+        if (!receiptEl) {
+          triggerToast('✗ Không tìm thấy hoá đơn');
+          return;
+        }
+
+        // 2. Chụp HTML element thành canvas (scale 3x để dấu tiếng Việt cực rõ)
+        const capturedCanvas = await html2canvas(receiptEl, {
+          backgroundColor: '#ffffff',
+          scale: 3,          // 3x resolution – dấu tiếng Việt sắc nét
+          useCORS: true,
+          logging: false,
+          allowTaint: true,
+        });
+
+        // 3. Scale canvas xuống 384px wide (vùng in thực tế 48mm ở 203 DPI)
+        const PRINT_W = 384;
+        const ratio   = PRINT_W / capturedCanvas.width;
+        const printH  = Math.round(capturedCanvas.height * ratio);
+        const printCanvas = document.createElement('canvas');
+        printCanvas.width  = PRINT_W;
+        printCanvas.height = printH;
+        const pCtx = printCanvas.getContext('2d');
+        pCtx.imageSmoothingEnabled = true;
+        pCtx.imageSmoothingQuality = 'high';
+        pCtx.drawImage(capturedCanvas, 0, 0, PRINT_W, printH);
+
+        // 4. Convert canvas → ESC/POS raster image bytes (GS v 0)
+        const bytes      = canvasToEscPosRasterBytes(printCanvas);
         const base64Data = uint8ArrayToBase64(bytes);
 
-        // 3. Kiểm tra kết nối Bluetooth
+        // 5. Kết nối Bluetooth nếu chưa kết nối
         const status = await BluetoothPrinter.isConnected();
         if (!status.connected) {
           triggerToast('⏳ Đang kết nối máy in...');
           await BluetoothPrinter.connect({ address: printerAddress });
         }
 
-        // 4. Gửi dữ liệu in
+        // 6. Gửi lệnh in
         await BluetoothPrinter.print({ base64Data });
         await finishPayment();
+
       } catch (err) {
-        console.error('Bluetooth raster print error:', err);
+        console.error('html2canvas print error:', err);
         triggerToast(`✗ Lỗi in: ${err.message || err}`);
       }
+
     } else {
-      // Không có Bluetooth: in qua hệ thống bằng canvas image
+      // Không có Bluetooth: in qua hệ thống
       printViaCanvas();
     }
   };
